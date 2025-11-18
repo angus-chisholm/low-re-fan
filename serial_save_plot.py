@@ -15,23 +15,30 @@ BAUDRATE = 9600
 CSV_FILENAME = f'test_data_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
 
 # Shared data structures
-rpm_data = {'target': None, 'smoothed': None, 'pwm': None}
+rpm_data = {'point': None, 'mean': None, 'stddev': None}
 stats_buffer = {}
 data_lock = threading.Lock()
-
-# Data rig
-rmid = 0.0275
 
 # Data for plotting (store last N points)
 MAX_PLOT_POINTS = 100
 plot_data = {
     'time': deque(maxlen=MAX_PLOT_POINTS),
-    'target_rpm': deque(maxlen=MAX_PLOT_POINTS),
-    'smoothed_rpm': deque(maxlen=MAX_PLOT_POINTS),
+    'rpm_mean': deque(maxlen=MAX_PLOT_POINTS),
+    'rpm_stddev': deque(maxlen=MAX_PLOT_POINTS),
     'mflow_mean': deque(maxlen=MAX_PLOT_POINTS),
+    'mflow_stddev': deque(maxlen=MAX_PLOT_POINTS),
     'axvelocity_mean': deque(maxlen=MAX_PLOT_POINTS),
+    'axvelocity_stddev': deque(maxlen=MAX_PLOT_POINTS),
     'dp_venturi_mean': deque(maxlen=MAX_PLOT_POINTS),
+    'dp_venturi_stddev': deque(maxlen=MAX_PLOT_POINTS),
     'dp_stage_mean': deque(maxlen=MAX_PLOT_POINTS),
+    'dp_stage_stddev': deque(maxlen=MAX_PLOT_POINTS),
+    'rho_mean': deque(maxlen=MAX_PLOT_POINTS),
+    'rho_stddev': deque(maxlen=MAX_PLOT_POINTS),
+    'flow_coefficient_mean': deque(maxlen=MAX_PLOT_POINTS),
+    'flow_coefficient_stddev': deque(maxlen=MAX_PLOT_POINTS),
+    'pressure_rise_coefficient_mean': deque(maxlen=MAX_PLOT_POINTS),
+    'pressure_rise_coefficient_stddev': deque(maxlen=MAX_PLOT_POINTS),
 }
 
 # CSV file setup
@@ -49,29 +56,47 @@ def init_csv():
         'axvelocity_mean', 'axvelocity_stddev',
         'dp_venturi_mean', 'dp_venturi_stddev',
         'dp_stage_mean', 'dp_stage_stddev',
-        'rho_mean', 'rho_std',
-        'flow_coefficient', 'pressure_rise_coefficient'#, 'efficiency'  # Processed data
+        'flow_coefficient', 'pressure_ratio', 'efficiency'  # Processed data
     ])
     csv_file.flush()
 
 def read_rpm_serial():
-    """Read continuous RPM data from first Arduino"""
+    """Read RPM data from first Arduino"""
     try:
         ser = serial.Serial(RPM_PORT, BAUDRATE, timeout=1)
         print(f"Connected to RPM port: {RPM_PORT}")
         
+        current_point = None
+        
         while True:
             if ser.in_waiting > 0:
                 line = ser.readline().decode('utf-8').strip()
-                try:
-                    parts = line.split()
-                    if len(parts) == 3:
+                
+                # Parse: "Point X - Mean: Y.YY RPM, StdDev: Z.ZZ RPM"
+                if line.startswith("Point ") and " - Mean: " in line:
+                    try:
+                        # Extract point number
+                        point_part = line.split(" - ")[0]
+                        current_point = int(point_part.replace("Point ", ""))
+                        
+                        # Extract mean and stddev
+                        data_part = line.split(" - Mean: ")[1]
+                        mean_part = data_part.split(" RPM, StdDev: ")[0]
+                        stddev_part = data_part.split(" RPM, StdDev: ")[1].replace(" RPM", "")
+                        
+                        rpm_mean = float(mean_part)
+                        rpm_stddev = float(stddev_part)
+                        
                         with data_lock:
-                            rpm_data['target'] = float(parts[0])
-                            rpm_data['smoothed'] = float(parts[1])
-                            rpm_data['pwm'] = float(parts[2])
-                except (ValueError, IndexError):
-                    pass
+                            rpm_data['point'] = current_point
+                            rpm_data['mean'] = rpm_mean
+                            rpm_data['stddev'] = rpm_stddev
+                        
+                        print(f"RPM Point {current_point}: {rpm_mean:.2f} ± {rpm_stddev:.2f} RPM")
+                        
+                    except (ValueError, IndexError) as e:
+                        print(f"Error parsing RPM line: {line} - {e}")
+                        
     except serial.SerialException as e:
         print(f"Error with RPM serial port: {e}")
 
@@ -118,7 +143,6 @@ def process_and_save_data(stats):
         # Get current RPM data
         target_rpm = rpm_data.get('target', 0)
         smoothed_rpm = rpm_data.get('smoothed', 0)
-        
         pwm = rpm_data.get('pwm', 0)
         
         # Extract stats
@@ -130,24 +154,23 @@ def process_and_save_data(stats):
         dp_venturi_std = stats.get('dp_venturi(P2-P3)_stddev', 0)
         dp_stage_mean = stats.get('dp_stage(P2-P1)_mean', 0)
         dp_stage_std = stats.get('dp_stage(P2-P1)_stddev', 0)
-        rho_mean = stats.get('rho_mean', 0)
-        rho_std = stats.get('rho_stddev', 0)
         
         # === PROCESSING CALCULATIONS ===
         # Example calculations - modify based on your actual needs
         
-        U = rmid*smoothed_rpm*np.pi/30
-        # Flow coefficient
-        flow_coefficient_mean = axvel_mean / U if smoothed_rpm > 0 else 0
+        # Flow coefficient (dimensionless flow parameter)
+        # Typically: Φ = Q / (N * D^3) where Q is flow, N is RPM, D is diameter
+        # Using mflow as proxy for flow rate
+        flow_coefficient = mflow_mean / (smoothed_rpm + 1) if smoothed_rpm > 0 else 0
         
-        # Pressure ratio coefficient
-        pressure_rise_coefficient_mean = dp_stage_mean / (rho_mean*U**2) if smoothed_rpm > 0 else 0
+        # Pressure ratio across stage
+        pressure_ratio = dp_stage_mean / (dp_venturi_mean + 1) if dp_venturi_mean != 0 else 0
         
-        # # Simplified efficiency estimate (modify based on your system)
-        # # Typically: η = (pressure rise * flow) / (torque * speed)
-        # # This is a placeholder - adjust to your actual efficiency calculation
-        # efficiency = (dp_stage_mean/rho_mean * mflow_mean) / (pwm ) if (U * pwm) > 0 else 0
-        # #efficiency = min(efficiency * 100, 100)  # Convert to percentage, cap at 100%
+        # Simplified efficiency estimate (modify based on your system)
+        # Typically: η = (pressure rise * flow) / (torque * speed)
+        # This is a placeholder - adjust to your actual efficiency calculation
+        efficiency = (dp_stage_mean * mflow_mean) / (smoothed_rpm * pwm + 1) if (smoothed_rpm * pwm) > 0 else 0
+        efficiency = min(efficiency * 100, 100)  # Convert to percentage, cap at 100%
         
         # Write to CSV
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
@@ -158,7 +181,7 @@ def process_and_save_data(stats):
             axvel_mean, axvel_std,
             dp_venturi_mean, dp_venturi_std,
             dp_stage_mean, dp_stage_std,
-            flow_coefficient_mean, pressure_rise_coefficient_mean, #efficiency
+            flow_coefficient, pressure_ratio, efficiency
         ]
         
         csv_writer.writerow(row)
@@ -172,10 +195,8 @@ def process_and_save_data(stats):
         plot_data['axvelocity_mean'].append(axvel_mean)
         plot_data['dp_venturi_mean'].append(dp_venturi_mean)
         plot_data['dp_stage_mean'].append(dp_stage_mean)
-        plot_data['flow_coefficient_mean'].append(flow_coefficient_mean)
-        plot_data['pressure_rise_coefficient_mean'].append(pressure_rise_coefficient_mean)
         
-        print(f"Point {stats.get('point', 0)}: RPM={smoothed_rpm:.0f}, mflow={mflow_mean:.4f}")#, η={efficiency:.2f}%")
+        print(f"Point {stats.get('point', 0)}: RPM={smoothed_rpm:.0f}, mflow={mflow_mean:.4f}, η={efficiency:.2f}%")
 
 def update_plot(frame):
     """Update the live plot"""
@@ -204,10 +225,10 @@ def update_plot(frame):
         axs[0, 1].set_title('Mass Flow Rate')
         axs[0, 1].grid(True, alpha=0.3)
         
-        # Plot 3: Flow coeff/Pressure Rise
-        axs[1, 0].plot(plot_data['flow_coefficient_mean'], plot_data['pressure_rise_coefficient_mean'], 'g-', linewidth=2)
-        axs[1, 0].set_ylabel(r'Pressure Rise Coefficient ($\frac{\del P}{\rho U^2}$)')
-        axs[1, 0].set_xlabel(r'Flow Coefficient ($\frac{V_x}{U}$)')
+        # Plot 3: Axial Velocity
+        axs[1, 0].plot(rel_times, plot_data['axvelocity_mean'], 'g-', linewidth=2)
+        axs[1, 0].set_ylabel('Axial Velocity')
+        axs[1, 0].set_xlabel('Time (s)')
         axs[1, 0].grid(True, alpha=0.3)
         
         # Plot 4: Pressure Differentials
