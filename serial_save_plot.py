@@ -34,8 +34,8 @@ Afan = 2 * np.pi * rmid * h  # m^2 (Fan flow area)
 Athroat = np.pi * d**2 / 4
 
 ## CHANGE THIS BASED ON ATM CONDITIONS
-pressureAtm = 1.02536 * 10**5 
-TAtm = 273.15 + 13.7
+pressureAtm = 1.01167 * 10**5 
+TAtm = 273.15 + 11.6
 #######
 rho_default = pressureAtm / 287 / TAtm
 
@@ -57,6 +57,8 @@ plot_data = {
     'dp_stage_mean': deque(maxlen=MAX_PLOT_POINTS),
     'phi_mean': deque(maxlen=MAX_PLOT_POINTS), 
     'pRise_mean': deque(maxlen=MAX_PLOT_POINTS), 
+    'rho_mean': deque(maxlen=MAX_PLOT_POINTS),
+    'axvel_mean': deque(maxlen=MAX_PLOT_POINTS),
     # Standard Deviations (Errors)
     'rpm_err': deque(maxlen=MAX_PLOT_POINTS),
     'mflow_err': deque(maxlen=MAX_PLOT_POINTS),
@@ -64,6 +66,8 @@ plot_data = {
     'dp_stage_err': deque(maxlen=MAX_PLOT_POINTS),
     'phi_err': deque(maxlen=MAX_PLOT_POINTS),
     'pRise_err': deque(maxlen=MAX_PLOT_POINTS),
+    'rho_err': deque(maxlen=MAX_PLOT_POINTS),
+    'axvel_err': deque(maxlen=MAX_PLOT_POINTS),
 }
 
 csv_file = None
@@ -148,8 +152,10 @@ def read_stats_serial():
                             process_and_save_data(temp_stats)
                             temp_stats = {}
             except (ValueError, IndexError, UnicodeDecodeError):
+                print("⚠️ Malformed Stats line, skipping...")
                 pass
-            except serial.SerialException:
+            except serial.SerialException as e:
+                print(f"⚠️ Stats serial error: {e}")
                 break
 
             # CRITICAL: Yield CPU so the plot can update
@@ -194,11 +200,16 @@ def process_and_save_data(stats):
         rpm_mean = rpm_data.get('mean', 0)
         rpm_std = rpm_data.get('stddev', 0)
         
-        # Sensor0 is usually Venturi total - static (from pitot and tapping)
+        # Skip processing if RPM data not yet available
+        if rpm_mean is None or rpm_std is None:
+            print("⚠️ Waiting for RPM data... skipping this measurement")
+            return
+        
+        # Sensor0 is usually Venturi total - static (from pitot and tapping) (positive)
         dp_sensor0_mean= stats.get('dp_sensor0_mean', 0)
         dp_sensor0_std = stats.get('dp_sensor0_stddev', 0)
         
-        # Sensor 1 is usually Atm total - static tapping after stage
+        # Sensor 1 is usually Atm total - static tapping after stage (negative)
         dp_sensor1_mean = stats.get('dp_sensor1_mean', 0)
         dp_sensor1_std = stats.get('dp_sensor1_stddev', 0)
         
@@ -213,14 +224,15 @@ def process_and_save_data(stats):
         rho_mean = pressureAtm / (287 * T_abs_mean)
         
         # Mass flow and axial velocity using venturi pitot and tapping (METHOD 1: Pitot-based)
-        axvel_mean = np.sqrt(dp_sensor0_mean/(0.5 * rho_mean))
-        mdot_mean = rho_mean * Athroat * axvel_mean
+        axvel_throat_mean = np.sqrt(np.abs(dp_sensor0_mean/(0.5 * rho_mean)))
+        mdot_mean = rho_mean * Athroat * axvel_throat_mean
+        axvel_mean = mdot_mean / (Afan * rho_mean)
         
         # ALTERNATIVE METHOD 2: Venturi static tappings only
         # mdot_mean = C * E * epsilon * np.pi / 4.0 * pow(d, 2) * np.sqrt(2.0 * abs(dp_sensor0_mean) * rho_mean)
         # axvel_mean = mdot_mean / (Afan * rho_mean)
         
-        dp_stage_mean = dp_sensor1_mean-0.5*rho_mean*axvel_mean**2 # Correction to inlet static (static-static stage dp)
+        dp_stage_mean = -(dp_sensor1_mean-0.5*rho_mean*axvel_mean**2) # Correction to inlet static (static-static stage dp)
         
         
         # Venturi pressure (same as sensor0 differential)
@@ -242,12 +254,15 @@ def process_and_save_data(stats):
         # sigma_axvel = axvel * sqrt( (sigma_dP/dP)^2 / 4 + (sigma_rho/rho)^2 / 4 )
         rel_var_dp0 = (dp_sensor0_std / dp_sensor0_mean)**2 if dp_sensor0_mean != 0 else 0
         rel_var_rho_local = (rho_std / rho_mean)**2 if rho_mean != 0 else 0
-        axvel_std = axvel_mean * np.sqrt(0.25 * rel_var_dp0 + 0.25 * rel_var_rho_local) if axvel_mean != 0 else 0
+        
+        axvel_throat_std = axvel_throat_mean * np.sqrt(0.25 * rel_var_dp0 + 0.25 * rel_var_rho_local) if axvel_throat_mean != 0 else 0
         
         # Error in mdot (mdot = rho * A * V)
         # sigma_mdot = mdot * sqrt( (sigma_rho/rho)^2 + (sigma_V/V)^2 )
-        rel_var_axvel = (axvel_std / axvel_mean)**2 if axvel_mean != 0 else 0
+        rel_var_axvel = (axvel_throat_std / axvel_throat_mean)**2 if axvel_throat_mean != 0 else 0
         mdot_std = mdot_mean * np.sqrt(rel_var_rho_local + rel_var_axvel) if mdot_mean != 0 else 0
+        # Error in axvel (from mdot)
+        axvel_std = axvel_mean * np.sqrt(rel_var_rho_local + (mdot_std / mdot_mean)**2) if axvel_mean != 0 else 0
         
         # ALTERNATIVE METHOD 2: Venturi static tappings only
         # Error in axvel: V = mdot / (A * rho), sigma_V = V * sqrt( (sigma_mdot/mdot)^2 + (sigma_rho/rho)^2 )
@@ -305,10 +320,16 @@ def process_and_save_data(stats):
         plot_data['dp_stage_mean'].append(dp_stage_mean)
         plot_data['dp_stage_err'].append(dp_stage_std)
         
+        plot_data['rho_mean'].append(rho_mean)
+        plot_data['rho_err'].append(rho_std)
+        
         plot_data['phi_mean'].append(phi)
         plot_data['phi_err'].append(phi_std)
         plot_data['pRise_mean'].append(pRise)
         plot_data['pRise_err'].append(pRise_std)
+        
+        plot_data['axvel_mean'].append(axvel_mean)
+        plot_data['axvel_err'].append(axvel_std)
 
         print(f"Pt {stats.get('point',0)}: Φ={phi:.3f}±{phi_std:.3f}, pRise={pRise:.3f}±{pRise_std:.3f}")
 
@@ -334,9 +355,12 @@ def update_plot(frame):
         axs[0, 0].grid(True, alpha=0.7)
         
         # Plot 2: Mass Flow
-        axs[0, 1].errorbar(rel_times, plot_data['mflow_mean'], yerr=plot_data['mflow_err'], 
-                           color='r', label='Mass Flow', **err_style)
-        axs[0, 1].set_ylabel('Mass Flow')
+        axs[0, 1].errorbar(rel_times, np.array(plot_data['mflow_mean'])*1e3, yerr=np.array(plot_data['mflow_err'])*1e3, 
+                           color='r', label='Mass Flow*1e3', **err_style)
+        axs[0, 1].errorbar(rel_times, plot_data['axvel_mean'], yerr=plot_data['axvel_err'], 
+                           color='g', label='Axial Velocity', **err_style)
+        axs[0, 1].legend(loc='upper left')
+        axs[0, 1].set_ylabel('Mass Flow*1e3, Axial Vel')
         axs[0, 1].grid(True, alpha=0.7)
         
         # Plot 3: Performance Curve (XY Error Bars)
@@ -354,7 +378,10 @@ def update_plot(frame):
                            color='orange', label='$\\Delta P$ Venturi', **err_style)
         axs[1, 1].errorbar(rel_times, plot_data['dp_stage_mean'], yerr=plot_data['dp_stage_err'], 
                            color='purple', label='$\\Delta P$ Stage', **err_style)
-        axs[1, 1].set_ylabel('Pressure (Pa)')
+        axs[1, 1].errorbar(rel_times, np.array(plot_data['rho_mean'])*10, 
+                           yerr=np.array(plot_data['rho_err'])*10, 
+                           color='brown', label='rho*10', **err_style)
+        axs[1, 1].set_ylabel('Pressure (Pa), Density*10')
         axs[1, 1].legend(loc='upper left')
         axs[1, 1].grid(True, alpha=0.7)
 
@@ -395,5 +422,7 @@ if __name__ == "__main__":
         fig.savefig(f"figs/dataplot_{datetime.now().strftime("%Y%m%d_%H%M%S")}.png")
         for s in serial_ports.values():
             if s and s.is_open: 
+                command = "stop\n"
+                s.write(command.encode('utf-8'))
                 s.close()
         print(f"Data saved to {CSV_FILENAME}")
