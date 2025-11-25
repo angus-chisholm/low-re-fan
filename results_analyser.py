@@ -3,44 +3,38 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import csv
 import datetime as dt
+import re
 
-file_name = "data/measurements.csv"
-results_df = pd.read_csv(file_name)
+file_names = [r"data\5blade_test_data_20251121_151802.csv",
+              r"data\7blade_test_data_20251121_150811.csv",
+              r"data\9blade_test_data_20251121_123704.csv",
+              r"data\5blade_redone_test_data_20251121_160151.csv"]
+# fan_results = []
+flowcoeffs = []
+prisecoeffs = []
 
-#print(results_df)
-
-rmid = 0.0275
-u = 3200 /60*2*np.pi*rmid # u_mid in rad/s
-plotting_fan_type = '9_blade'
-testing_time = dt.datetime(2025,11,11,16,13)
-plotting_fan_type2 = '7_blade_flat'
-testing_time2 = dt.datetime(2025,11,11,16,21)
-margin = dt.timedelta(0,120)
+for i, f in enumerate(file_names):
+    fan_result = (pd.read_csv(f))
+    flowcoeffs.append(fan_result['flow_coefficient'])
+    prisecoeffs.append(fan_result['pressure_rise_coefficient'])
+    
 
 def datetime_conversion(timestamp):
-    return dt.datetime.strptime(timestamp,'%d/%m/%Y %H:%M')
+    timestamp = timestamp[:-4]
+    return dt.datetime.strptime(timestamp,'%Y-%m-%d %H:%M:%S')
 
-results_df["flow_coefficient"] = results_df["Vx"].div(u)
-results_df["p_rise_coefficent"] = results_df["p1-p2"].div(results_df["rho"]).div(u**2)
-results_df["Timestamp"] = results_df["Timestamp"].apply(datetime_conversion)
-
-x = results_df[(results_df['fan_type']== plotting_fan_type) & (results_df['Timestamp'] < testing_time+margin) & (results_df['Timestamp'] > testing_time-margin)]["flow_coefficient"]
-y = results_df[(results_df['fan_type']== plotting_fan_type) & (results_df['Timestamp'] < testing_time+margin) & (results_df['Timestamp'] > testing_time-margin)]["p_rise_coefficent"]
-x2 = results_df[(results_df['fan_type']== plotting_fan_type2) & (results_df['Timestamp'] < testing_time2+margin) & (results_df['Timestamp'] > testing_time2-margin)]["flow_coefficient"]
-y2 = results_df[(results_df['fan_type']== plotting_fan_type2) & (results_df['Timestamp'] < testing_time2+margin) & (results_df['Timestamp'] > testing_time2-margin)]["p_rise_coefficent"]
-
-
-print(len(y))
+re_expression = r"([0-9]+blade)"
+labels = [re.search(re_expression,f).group(0) for f in file_names]
 
 fig,ax = plt.subplots()
-ax.scatter(x,y,marker='x',label=plotting_fan_type)
-ax.scatter(x2,y2,marker='x',label=plotting_fan_type2)
-ax.set_xlabel(r"$\frac{Vx}{U}$")
-ax.set_ylabel(r"$\frac{\Delta p}{\rho U^2}$")
-ax.set_title(f"Pressure rise against flow coefficient")
-ax.set_ylim(0,0.6)
-ax.set_xlim(0.4,0.8)
+for x in range(len(flowcoeffs)):
+    ax.scatter(flowcoeffs[x],prisecoeffs[x],marker='x',label=labels[x])
+ax.set_xlabel(r"Flow Coeff")
+ax.set_ylabel(r"Prise coeff")
+# ax.set_title(f"Axial Velocity")
+ax.set_ylim(0,1.2)
+ax.set_xlim(0.2,1)
 ax.legend()
 ax.grid()
-fig.savefig(f"figs/{plotting_fan_type}_{plotting_fan_type2}_{testing_time.strftime('%d_%m_%Y_%H_%M')}_plot")
+# fig.savefig(f"figs/axial_velocity_errors_plot.png")
 plt.show()
