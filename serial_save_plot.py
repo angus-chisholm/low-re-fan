@@ -15,7 +15,7 @@ from datetime import datetime
 import numpy as np
 
 # Configuration
-RPM_PORT = 'COM6'
+RPM_PORT = 'COM3'
 STATS_PORT = 'COM4'
 SUCTION_FAN_PORT = 'COM7'
 BAUDRATE = 115200
@@ -232,7 +232,7 @@ def process_and_save_data(stats):
         # mdot_mean = C * E * epsilon * np.pi / 4.0 * pow(d, 2) * np.sqrt(2.0 * abs(dp_sensor0_mean) * rho_mean)
         # axvel_mean = mdot_mean / (Afan * rho_mean)
         
-        dp_stage_mean = -(dp_sensor1_mean-0.5*rho_mean*axvel_mean**2) # Correction to inlet static (static-static stage dp)
+        dp_stage_mean = -(dp_sensor1_mean)#-0.5*rho_mean*axvel_mean**2) # Correction to inlet static (static-static stage dp)
         
         
         # Venturi pressure (same as sensor0 differential)

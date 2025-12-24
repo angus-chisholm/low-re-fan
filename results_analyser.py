@@ -5,44 +5,60 @@ import csv
 import datetime as dt
 import re
 
-file_names = [#r"data\5blade_2511_test_data_20251125_131042.csv",
-              r"data\7blade_2511_test_data_20251125_130254.csv",
-              r"data\7blade_2511_test_data_20251125_145210.csv",
-              r"data\7blade_2511_test_data_20251125_145922.csv",]
+file_names = [r"data\test_data_20251125_175221.csv"]
 
-# fan_results = []
+fan_results = []
 flowcoeffs = []
+flowcoeffs_errors = []
 prisecoeffs = []
+prisecoeffs_errors = []
 avgSpeeds = []
+dpventuris = []
+dpventuris_errors = []
+dpstages = []
+dpstages_errors = []
 
-for i, f in enumerate(file_names):
-    fan_result = (pd.read_csv(f))
-    flowcoeffs.append(fan_result['flow_coefficient_mean'])
-    prisecoeffs.append(fan_result['pressure_rise_coefficient_mean'])
-    avgSpeeds.append(np.median(fan_result['rpm_mean']))
-    
 
 def datetime_conversion(timestamp):
     timestamp = timestamp[:-4]
     return dt.datetime.strptime(timestamp,'%Y-%m-%d %H:%M:%S')
+
+times = pd.read_csv(file_names[0])['timestamp'].apply(datetime_conversion)
+
+for i, f in enumerate(file_names):
+    fan_results.append(pd.read_csv(f))
+    avgSpeeds.append(np.mean(fan_results[i]['rpm_mean']))
+    flowcoeffs.append(fan_results[i]['flow_coefficient_mean'])
+    flowcoeffs_errors.append(fan_results[i]['flow_coefficient_stddev'])
+    prisecoeffs.append(fan_results[i]['pressure_rise_coefficient_mean'])
+    prisecoeffs_errors.append(fan_results[i]['pressure_rise_coefficient_stddev'])
+    dpventuris.append(fan_results[i]['dp_venturi_mean'])
+    dpventuris_errors.append(fan_results[i]['dp_venturi_stddev'])
+    dpstages.append(fan_results[i]['dp_stage_mean'])
+    dpstages_errors.append(fan_results[i]['dp_stage_stddev'])
+    
+
 def moving_average(data, window_size=5):
     """Calculate moving average of data"""
     return np.convolve(data, np.ones(window_size)/window_size, mode='valid')
 
 re_expression = r"([0-9]+blade)"
-labels = [re.search(re_expression,f).group(0)+f" (Avg RPM: {avgSpeeds[i]:.1f})" for i,f in enumerate(file_names)]
+re_expression2 = r"blade_([a-z0-9]+)[_,.]"
+labels = ['''re.search(re_expression,f).group(0)+''' f" (Avg RPM: {avgSpeeds[i]:.1f})" for i,f in enumerate(file_names)]
 
-polyfit_lines = [np.poly1d(np.polyfit(flowcoeffs[i],prisecoeffs[i],3)) for i in range(len(file_names))]
+#polyfit_lines = [np.poly1d(np.polyfit(flowcoeffs[i],prisecoeffs[i],3)) for i in range(len(file_names))]
 
 fig,ax = plt.subplots()
 for x in range(len(flowcoeffs)):
-    ax.scatter(flowcoeffs[x],prisecoeffs[x],marker='x',label=labels[x])
-    ax.plot(np.linspace(0.25,0.4,100),polyfit_lines[x](np.linspace(0.25,0.4,100)),label=f"{labels[x]} Fit", linestyle='--', alpha=0.5)
-ax.set_xlabel(r"Flow Coeff")
-ax.set_ylabel(r"Prise coeff")
+    #ax.scatter(flowcoeffs[x],prisecoeffs[x],marker='x',label=labels[x])
+    #ax.plot(np.linspace(0.25,0.4,100),polyfit_lines[x](np.linspace(0.25,0.4,100)),label=f"{labels[x]} Fit", linestyle='--', alpha=0.5)
+    ax.errorbar(times,dpventuris[x],yerr=dpventuris_errors[x],fmt='x',capsize=3, label=f"Venturi DP", alpha=0.5)
+    ax.errorbar(times,dpstages[x],yerr=dpstages_errors[x],fmt='x',capsize=3,label=f"Stage DP", alpha=0.5)
+# ax.set_xlabel(r"Flow Coeff")
+# ax.set_ylabel(r"Prise coeff")
 # ax.set_title(f"Axial Velocity")
-ax.set_ylim(0.15,0.3)
-ax.set_xlim(0.25,0.4)
+# ax.set_ylim(0,0.5)
+# ax.set_xlim(0,0.5)
 ax.legend()
 ax.grid()
 # fig.savefig(f"figs/axial_velocity_errors_plot.png")
