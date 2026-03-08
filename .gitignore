@@ -219,4 +219,6 @@ stl_files/
 throughflow_output/
 throughflow_solver/
 !throughflow_solver/parameter_sweep.py
+*.stl
+*.png
 
