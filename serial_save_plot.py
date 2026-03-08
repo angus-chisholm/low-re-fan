@@ -13,13 +13,19 @@ from matplotlib.animation import FuncAnimation
 from collections import deque
 from datetime import datetime
 import numpy as np
+import os
+import re
+import scipy.io.wavfile as wavfile
+
+from microphone_recorder import MicrophoneAnalyzer
 
 # Configuration
-RPM_PORT = 'COM3'
-STATS_PORT = 'COM4'
-SUCTION_FAN_PORT = 'COM7'
+RPM_PORT = 'COM7'
+STATS_PORT = 'COM6'
+SUCTION_FAN_PORT = 'COM4'
 BAUDRATE = 115200
 CSV_FILENAME = f'data/test_data_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
+AUDIO_FILENAME = f'audio/recording_{datetime.now().strftime("%Y%m%d_%H%M%S")}.wav'
 
 # Constants
 C = 0.973
@@ -34,8 +40,8 @@ Afan = 2 * np.pi * rmid * h  # m^2 (Fan flow area)
 Athroat = np.pi * d**2 / 4
 
 ## CHANGE THIS BASED ON ATM CONDITIONS
-pressureAtm = 1.01167 * 10**5 
-TAtm = 273.15 + 11.6
+pressureAtm = 1.01148 * 10**5 
+TAtm = 273.15 + 18.2
 #######
 rho_default = pressureAtm / 287 / TAtm
 
@@ -43,8 +49,16 @@ RPM_TO_U_CONV = rmid * np.pi / 30
 
 # Shared data
 rpm_data = {'point': None, 'mean': None, 'stddev': None}
+throttle_data = {'point': None, 'location': None}
+mic_data = {'point': None, 'oaspl': None}
 stats_buffer = {}
 data_lock = threading.Lock()
+
+# Mic variables
+mic_analyser = None
+test_start_time = None
+last_recorded_point = -1
+mic_lock = threading.Lock()
 
 # Data for plotting
 MAX_PLOT_POINTS = 250
@@ -87,8 +101,66 @@ def init_csv():
         'axvelocity_mean', 'axvelocity_stddev',
         'flow_coefficient_mean', 'flow_coefficient_stddev',
         'pressure_rise_coefficient_mean', 'pressure_rise_coefficient_stddev',
+        'throttle_location',
+        'oaspl',
+        'power_mean', 'power_stddev',
+        'efficiency_mean', 'efficiency_stddev'
     ])
     csv_file.flush()
+    
+def init_microphone():
+    """Initialize microphone before test starts."""
+    global mic_analyser
+    global mic_recordings
+    try:
+        mic_analyser = MicrophoneAnalyzer()
+        mic_analyser.duration = 2  # Record for 2 seconds
+        mic_analyser.device_id = None  # Use default device
+        mic_recordings = []
+        print("✅ Microphone ready")
+        return True
+    except Exception as e:
+        print(f"❌ Microphone init failed: {e}")
+        return False
+
+def microphone_recording_thread():
+    """Handles microphone recording based on timing"""
+    global test_start_time, mic_analyser
+    
+    if not mic_analyser:
+        return
+    print(f"✅ Connected to microphone analyser")
+    
+    # Wait for test to start
+    while test_start_time is None:
+        time.sleep(0.1)
+    
+    point_count = 0
+    
+    while True:
+        try:
+            elapsed = time.time() - test_start_time
+            
+            # First recording at 13s, then every (2s recording + 3s delay) = 5s
+            recording_interval = 5  # 2s record + 3s delay
+            next_recording_time = 13 + (point_count * recording_interval)
+            
+            if elapsed >= next_recording_time:
+                print(f"\n🎤 Recording audio for point {point_count}...")
+                if mic_analyser.record_audio():  # Blocks for 2 seconds
+                    mic_data['point'] = point_count
+                    mic_data['oaspl'] = mic_analyser.overall_a_spl()
+                    mic_recordings.append(mic_analyser.audio_data.copy())
+                    print(f"mic recording!! {len(mic_recordings)}")
+                    print(f"✅ Audio recorded for point {point_count}\n")
+                point_count += 1
+            
+            time.sleep(0.01)
+            
+        except Exception as e:
+            print(f"⚠️ Microphone thread error: {e}")
+            time.sleep(1)
+
 
 # --- SERIAL READING FUNCTIONS (FIXED CPU HOGGING) ---
 def read_rpm_serial():
@@ -102,18 +174,33 @@ def read_rpm_serial():
             try:
                 if ser.in_waiting > 0:
                     line = ser.readline().decode('utf-8').strip()
-                    if line.startswith("Point ") and " - Mean: " in line:
-                        # ... (Parsing logic remains the same) ...
-                        point_part = line.split(" - ")[0]
-                        current_point = int(point_part.replace("Point ", ""))
-                        data_part = line.split(" - Mean: ")[1]
-                        mean_part = data_part.split(" RPM, StdDev: ")[0]
-                        stddev_part = data_part.split(" RPM, StdDev: ")[1].replace(" RPM", "")
+                    if not line:
+                        continue
+
+                    # Look for our specific data packet
+                    if line.startswith("DATA_PKT"):
+                        parts = line.split(",")
                         
-                        with data_lock:
-                            rpm_data['point'] = current_point
-                            rpm_data['mean'] = float(mean_part)
-                            rpm_data['stddev'] = float(stddev_part)
+                        # parts[0] is "DATA_PKT"
+                        # parts[1] is Point Index
+                        # parts[2] is RPM Mean
+                        # parts[3] is RPM StdDev
+                        # parts[4] is Power Mean
+                        # parts[5] is Power StdDev
+
+                        if len(parts) >= 6:
+                            with data_lock:
+                                rpm_data['point'] = int(parts[1])
+                                rpm_data['mean'] = float(parts[2])
+                                rpm_data['stddev'] = float(parts[3])
+                                rpm_data['pwr_mean'] = float(parts[4])
+                                rpm_data['pwr_std'] = float(parts[5])
+                            
+                            print(f"Captured Point {parts[1]}: {parts[2]} RPM | {parts[4]} mW")
+
+                    else:
+                        # Handles other Serial.print statements (like "System Ready")
+                        print(f"Log: {line}")
             except (ValueError, IndexError, UnicodeDecodeError):
                 pass
             except serial.SerialException:
@@ -171,16 +258,28 @@ def read_suction_fan_serial():
         global serial_ports
         serial_ports['suction_fan'] = ser
         while True:
-            if ser.in_waiting > 0:
-                ser.readline() # clear buffer
-            
+            try:
+                if ser.in_waiting > 0:
+                    line = ser.readline().decode('utf-8').strip()
+                    if line.startswith("Point: "):
+                        parts = line.split(", ")
+                        current_point = int(parts[0].replace("Point: ", ""))
+                        location_pwm = int(parts[1].replace("Location: ", ""))
+                        
+                        throttle_data['point'] = current_point
+                        throttle_data['location'] = location_pwm
+            except (ValueError, IndexError):
+                print("⚠️ Malformed Stats line, skipping...")
             # CRITICAL: Yield CPU so the plot can update
-            time.sleep(0.01) 
+            time.sleep(0.005) 
             
     except serial.SerialException:
         pass
 
 def start_test():
+    
+    global test_start_time
+    
     command = "run_test\n" 
     print(f"\nSending command '{command.strip()}' to all connected devices...")
     global serial_ports
@@ -191,18 +290,31 @@ def start_test():
                 print(f"-> Sent to {key}")
             except Exception as e:
                 print(f"Error {key}: {e}")
+                
+    test_start_time = time.time()  # Record when test command has been sent to all devices
     print("-" * 30)
 
 # --- DATA PROCESSING & ERROR PROPAGATION ---
 def process_and_save_data(stats):
     with data_lock:
+        
+        current_point = stats.get('point', -1)
         # 1. Retrieve Raw Means and StdDevs
+        rpm_point = rpm_data.get('point', 0)
         rpm_mean = rpm_data.get('mean', 0)
         rpm_std = rpm_data.get('stddev', 0)
         
+        throttle_point = throttle_data.get('point',0)
+        throttle_location = throttle_data.get('location',0)
+        
+        mic_oaspl = mic_data.get('oaspl',-100)
+        
+        power_mean = rpm_data.get('pwr_mean',0)
+        power_std = rpm_data.get('pwr_std',0)
+        
         # Skip processing if RPM data not yet available
-        if rpm_mean is None or rpm_std is None:
-            print("⚠️ Waiting for RPM data... skipping this measurement")
+        if rpm_mean is None or rpm_std is None or (rpm_point != current_point or rpm_point != throttle_point):
+            print(f"⚠️ Waiting for matching RPM data (expected pt {current_point}, got pt {rpm_point}), throttle pt {throttle_point}")
             return
         
         # Sensor0 is usually Venturi total - static (from pitot and tapping) (positive)
@@ -232,7 +344,7 @@ def process_and_save_data(stats):
         # mdot_mean = C * E * epsilon * np.pi / 4.0 * pow(d, 2) * np.sqrt(2.0 * abs(dp_sensor0_mean) * rho_mean)
         # axvel_mean = mdot_mean / (Afan * rho_mean)
         
-        dp_stage_mean = -(dp_sensor1_mean)#-0.5*rho_mean*axvel_mean**2) # Correction to inlet static (static-static stage dp)
+        dp_stage_mean = dp_sensor1_mean #total - static
         
         
         # Venturi pressure (same as sensor0 differential)
@@ -241,6 +353,10 @@ def process_and_save_data(stats):
         
         phi = axvel_mean / U if abs(U) > 1e-6 else 0.0
         pRise = dp_stage_mean / (rho_mean * U_sq) if (U_sq > 1e-6 and rho_mean > 0) else 0.0
+        
+        # Aero power = pressure rise*volumetric flow rate
+        aero_power_mean = dp_stage_mean*mdot_mean/rho_mean # W
+        efficiency_mean = aero_power_mean/(power_mean/1000) # W/W
         
         # 3. Calculate Error Propagation (Standard Deviations)
         
@@ -291,6 +407,18 @@ def process_and_save_data(stats):
         # sigma_pRise = pRise * sqrt( (sigma_dp/dp)^2 + (sigma_rho/rho)^2 + (2*sigma_U/U)^2 )
         rel_var_dp = (dp_stage_std / dp_stage_mean)**2 if dp_stage_mean != 0 else 0
         pRise_std = abs(pRise) * np.sqrt(rel_var_dp + rel_var_rho + (4 * rel_var_U)) # 4 comes from (2*sigma_U/U)^2
+        
+        # Efficiency standard deviation propogation:
+        rel_std_dp   = dp_stage_std / dp_stage_mean
+        rel_std_mdot = mdot_std / mdot_mean
+        rel_std_rho  = rho_std / rho_mean
+        rel_std_power = power_std / power_mean
+
+        # Propagated relative std of efficiency
+        rel_std_efficiency = np.sqrt(rel_std_dp**2 + rel_std_mdot**2 + rel_std_rho**2 + rel_std_power**2)
+
+        # Absolute standard deviation of efficiency
+        efficiency_std = efficiency_mean * rel_std_efficiency
 
         # 4. Save to CSV
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
@@ -303,7 +431,11 @@ def process_and_save_data(stats):
             mdot_mean, mdot_std,
             axvel_mean, axvel_std,
             phi, phi_std,
-            pRise, pRise_std
+            pRise, pRise_std,
+            throttle_location,
+            mic_oaspl,
+            power_mean, power_std,
+            efficiency_mean, efficiency_std,
         ])
         csv_file.flush()
         
@@ -390,20 +522,68 @@ if __name__ == "__main__":
     serial_ports = {'rpm': None, 'stats': None, 'suction_fan': None}
     
     print("Starting Scientific Data Logger...")
+    
+    
+    entry = False
+    doe_bool = False
+    while entry==False:
+        doe = input("Is this a DOE test? (y/n)")
+        if doe == "y":
+            entry = True
+            try:
+                blade_number = int(input("What blade is this? (Enter integer)"))
+                doe_bool = True
+                stl_file = None
+                for file in os.listdir("stl_files"):
+                    match = re.search(f"DOE_{blade_number}",file)
+                    if match:
+                        parts = file.split(sep=".")
+                        print(parts)
+                        if parts[-1] == "stl":
+                            stl_file = file.rstrip(".stl")
+                if stl_file == None:
+                    raise ValueError("No file found")
+                CSV_FILENAME = f'data/doe_data/{stl_file}.csv'
+                AUDIO_FILENAME = f'audio/doe_data/{stl_file}.wav'
+                print(CSV_FILENAME)
+            except TypeError:
+                print("invalid entry")
+                entry = False
+        elif doe == "n":
+            entry = True
+        else:
+            print("Enter a valid response (y/n)")
+            
+    
+    if not doe_bool:
+        blade = input("Enter blade type: ")
+        if blade=="":
+            pass
+        else:
+            CSV_FILENAME = f'data/test_data_{blade}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
+            AUDIO_FILENAME = f'audio/recording_{blade}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.wav'
+    
+    print(f"[SAVE FILE] set to {CSV_FILENAME}")
     init_csv()
+    init_microphone()
     
     # Start threads
     t1 = threading.Thread(target=read_rpm_serial, daemon=True)
     t2 = threading.Thread(target=read_stats_serial, daemon=True)
     t3 = threading.Thread(target=read_suction_fan_serial, daemon=True)
+    t_mic = threading.Thread(target=microphone_recording_thread, daemon=True)
     
     t1.start()
     t2.start()
     t3.start()
+    t_mic.start()
     
     print("Waiting for connections...")
     time.sleep(3)
     start_test()
+    test_start_time = time.time()
+    
+    
     
     # Setup Plotting
     plt.style.use('seaborn-v0_8-darkgrid')
@@ -420,8 +600,13 @@ if __name__ == "__main__":
     finally:
         csv_file.close()
         fig.savefig(f"figs/dataplot_{datetime.now().strftime("%Y%m%d_%H%M%S")}.png")
+        # Save audio file
+        full_recording = np.concatenate(mic_recordings, axis=0)
+        # Save as single file
+        wavfile.write(AUDIO_FILENAME, mic_analyser.sample_rate, full_recording)
+        print(f"Saved {len(mic_recordings)} sections to {AUDIO_FILENAME}")
         for s in serial_ports.values():
-            if s and s.is_open: 
+            if s and s.is_open:
                 command = "stop\n"
                 s.write(command.encode('utf-8'))
                 s.close()

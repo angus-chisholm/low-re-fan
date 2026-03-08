@@ -360,21 +360,21 @@ class AxialFanDesign:
         plt.savefig('figs/radial_distributions.png', dpi=300, bbox_inches='tight')
         plt.show()
         
-        # Additional plot for pressure distribution
-        fig2, ax2 = plt.subplots(1, 1, figsize=(8, 5))
+        # # Additional plot for pressure distribution
+        # fig2, ax2 = plt.subplots(1, 1, figsize=(8, 5))
         
-        # Pressure rises
-        ax2.plot(r_norm, self.results['Delta_p0'], 'b-', linewidth=2, label='Stagnation Δp₀')
-        ax2.plot(r_norm, self.results['Delta_p_static'], 'r-', linewidth=2, label='Static Δp')
-        ax2.set_xlabel('Normalized Radius')
-        ax2.set_ylabel('Pressure Rise (Pa)')
-        ax2.set_title('Pressure Rise Distribution')
-        ax2.legend()
-        ax2.grid(True, alpha=0.3)
+        # # Pressure rises
+        # ax2.plot(r_norm, self.results['Delta_p0'], 'b-', linewidth=2, label='Stagnation Δp₀')
+        # ax2.plot(r_norm, self.results['Delta_p_static'], 'r-', linewidth=2, label='Static Δp')
+        # ax2.set_xlabel('Normalized Radius')
+        # ax2.set_ylabel('Pressure Rise (Pa)')
+        # ax2.set_title('Pressure Rise Distribution')
+        # ax2.legend()
+        # ax2.grid(True, alpha=0.3)
         
-        plt.tight_layout()
-        plt.savefig('figs/pressure_distribution.png', dpi=300, bbox_inches='tight')
-        plt.show()
+        # plt.tight_layout()
+        # plt.savefig('figs/pressure_distribution.png', dpi=300, bbox_inches='tight')
+        # plt.show()
     
     def print_summary(self):
         """
@@ -630,9 +630,9 @@ def main():
     rcas = 0.040       # Casing radius (m) - 40mm
     Cx = 0.015         # Axial chord (m) - 15mm
     Nblade = 7         # Number of blades
-    Beta_1m = 60       # RELATIVE inlet angle at mean (degrees)
-    vort_exp = 0.0      # Free vortex (applies to absolute frame)
-    rpm = 3000         # Rotational speed
+    Beta_1m = 52.8       # RELATIVE inlet angle at mean (degrees)
+    vort_exp = -1      # Free vortex (applies to absolute frame)
+    rpm = 1500         # Rotational speed
     DeHaller = 0.75    # De Haller number W2/W1 at midspan
     
     # Create fan design object
