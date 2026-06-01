@@ -8,14 +8,13 @@ standalone for quick testing.
 
 import numpy as np
 import matplotlib.gridspec as gridspec
-import matplotlib.cm as cm
 import csv, os
 
 from pca_core import (
     PARAM_BOUNDS, PARAM_NAMES, PARAM_KEYS,
     PHI_COMMON, N_PHI,
-    BG, PANEL, BORDER, CYAN, AMBER, GREEN, RED, PINK, GREY, WHITE,
-    MCOLORS,
+    BG, PANEL, BORDER, CYAN, AMBER, GREEN, RED, PINK, GREY, WHITE, BLACK, COLOUR_CHIC,
+    MCOLORS, COLOURMAP,
     PCAModel, GPSurrogates,
 )
 from pca_panel_mixin import ControlPanelMixin
@@ -62,7 +61,7 @@ class PsiTab(ControlPanelMixin):
             width_ratios=[1, 0.4, 2.6], wspace=0.2)
 
         right_gs = gridspec.GridSpecFromSubplotSpec(
-            2, 2, subplot_spec=outer_gs[2], hspace=0.38, wspace=0.32)
+            2, 2, subplot_spec=outer_gs[2], hspace=0.2, wspace=0.2)
 
         self.ax_main  = self.fig.add_subplot(right_gs[0, :])
         self.ax_scree = self.fig.add_subplot(right_gs[1, 0])
@@ -100,15 +99,15 @@ class PsiTab(ControlPanelMixin):
         ax.plot(PHI_COMMON, self.pca.mean_curve,
                 color=WHITE, lw=1.2, ls="--", alpha=0.2, label="Mean curve")
         ax.fill_between(PHI_COMMON[mask], psi_pred - 2*psi_std, psi_pred + 2*psi_std,
-                        color=CYAN, alpha=0.10, label="GP ±2σ")
+                        color=COLOUR_CHIC, alpha=0.10, label="GP ±2σ")
         ax.fill_between(PHI_COMMON[mask], psi_pred - psi_std, psi_pred + psi_std,
-                        color=CYAN, alpha=0.22, label="GP ±1σ")
-        ax.plot(PHI_COMMON[mask], psi_pred, color=CYAN, lw=2.5,
+                        color=COLOUR_CHIC, alpha=0.22, label="GP ±1σ")
+        ax.plot(PHI_COMMON[mask], psi_pred, color=COLOUR_CHIC, lw=2.5,
                 label=f"GP prediction ({self.n_modes} modes)", zorder=7)
 
         if plot_vals is not None:
             n    = len(plot_vals)
-            cmap = cm.coolwarm
+            cmap = COLOURMAP
             for i, val in enumerate(plot_vals):
                 pv = list(param_vals); pv[checked_box] = val
                 sm, _, phi_s_m, _, phi_e_m, _ = self.gp.predict(pv)
@@ -126,7 +125,7 @@ class PsiTab(ControlPanelMixin):
         # ax.scatter([phi_e_m], [psi_at_end], color=RED, s=60, zorder=7)
 
         title = "  ".join(f"{k}={v:.3g}" for k, v in zip(PARAM_KEYS, param_vals))
-        ax.set_title(title, color=AMBER, fontsize=7, pad=4)
+        ax.set_title(title, color=BLACK, fontsize=7, pad=4)
         ax.set_xlabel("Flow coefficient  φ  [—]")
         ax.set_ylabel("Pressure-rise coefficient  ψ  [—]")
         ax.legend(loc="upper right", framealpha=0.7)

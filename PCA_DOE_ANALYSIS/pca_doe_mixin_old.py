@@ -27,7 +27,7 @@ import matplotlib.cm as cm
 from pca_core import (
     PARAM_BOUNDS, PARAM_NAMES, PARAM_KEYS, PARAM_LO, PARAM_HI,
     PHI_COMMON, N_PHI,
-    BG, PANEL, BORDER, CYAN, AMBER, GREEN, RED, PINK, GREY, WHITE,BLACK,
+    BG, PANEL, BORDER, CYAN, AMBER, GREEN, RED, PINK, GREY, WHITE,
     MCOLORS, COLOUR_LIST,
     PCAModel, GPSurrogates,
 )
@@ -65,12 +65,12 @@ class ControlPanelMixin:
         for i, (label, (key, lo, hi, init)) in enumerate(PARAM_BOUNDS.items()):
             ax = fig.add_subplot(left_gs[i * 2 + 1])
             ax.set_facecolor(PANEL)
-            kw = dict(color=RED, track_color=BLACK)
+            kw = dict(color=CYAN, track_color=BORDER)
             if key == "n_blade":
                 kw["valstep"] = 1
             sl = Slider(ax, label, lo, hi, valinit=init, **kw)
-            sl.label.set_color(BLACK);  sl.label.set_fontsize(7.5)
-            sl.valtext.set_color(BLACK); sl.valtext.set_fontsize(7.5)
+            sl.label.set_color(WHITE);  sl.label.set_fontsize(7.5)
+            sl.valtext.set_color(CYAN); sl.valtext.set_fontsize(7.5)
             cid = sl.on_changed(self._on_slider)
             self._slider_observer_cids[key] = cid
             self.sliders[key] = sl
@@ -96,9 +96,9 @@ class ControlPanelMixin:
             },
         )
         for lbl in self.ticks.labels:
-            lbl.set_color(BLACK)
+            lbl.set_color(WHITE)
             lbl.set_fontsize(7.5)
-        ax.set_title("Sweep param", color=BLACK, fontsize=7, pad=2)
+        ax.set_title("Sweep param", color=AMBER, fontsize=7, pad=2)
         self.ticks.on_clicked(self._on_tick)
 
     # ── mode radio ───────────────────────────────────────────────────────────
@@ -110,8 +110,8 @@ class ControlPanelMixin:
             ax_radio, [str(i) for i in range(1, self.N_MODES_MAX + 1)],
             active=self.n_modes - 1, activecolor=CYAN)
         for lbl in self.radio_modes.labels:
-            lbl.set_color(BLACK); lbl.set_fontsize(7)
-        ax_radio.set_title("Modes k", color=BLACK, fontsize=7, pad=2)
+            lbl.set_color(WHITE); lbl.set_fontsize(7)
+        ax_radio.set_title("Modes k", color=AMBER, fontsize=7, pad=2)
         self.radio_modes.on_clicked(self._on_mode_change)
 
     # ── info text ────────────────────────────────────────────────────────────
@@ -122,7 +122,7 @@ class ControlPanelMixin:
         ax_info.axis("off")
         self.info_text = ax_info.text(
             0.05, 0.95, "", transform=ax_info.transAxes,
-            va="top", ha="left", fontsize=7, color=BLACK, fontfamily="monospace")
+            va="top", ha="left", fontsize=7, color=WHITE, fontfamily="monospace")
 
     # ── export button ────────────────────────────────────────────────────────
     def _build_export_button(self, fig, left_gs):
@@ -151,32 +151,14 @@ class ControlPanelMixin:
         return None
 
     def set_sliders_active(self, active: bool):
-        """Enable or disable slider observers without accumulating duplicate callbacks."""
-        for key, sl in self.sliders.items():
-            cid = self._slider_observer_cids.get(key)
-            if not active:
-                # Disconnect the current observer if one is registered
-                if cid is not None:
-                    try:
-                        sl.disconnect(cid)
-                    except Exception:
-                        pass
-                    self._slider_observer_cids[key] = None
-                # Release any mouse grab so matplotlib doesn't complain when
-                # these axes are hidden and the other tab is brought forward.
-                try:
-                    sl.ax.figure.canvas._lastx = None
-                except Exception:
-                    pass
-                if hasattr(sl, '_active'):
-                    sl._active = False
+        """Enable or disable slider observers."""
+        for key, cid in self._slider_observer_cids.items():
+            if active:
+                # Reconnect observer
+                self._slider_observer_cids[key] = self.sliders[key].on_changed(self._on_slider)
             else:
-                # Only register a new observer if one isn't already connected
-                if cid is None:
-                    new_cid = sl.on_changed(self._on_slider)
-                    self._slider_observer_cids[key] = new_cid
-                if hasattr(sl, '_active'):
-                    sl._active = True
+                # Disconnect observer
+                self.sliders[key].disconnect(cid)
 
     # ── shared callbacks ─────────────────────────────────────────────────────
     def _on_slider(self, _val):
@@ -230,7 +212,7 @@ class ControlPanelMixin:
         ax.set_xlabel("Mode index k")
         ax.set_ylabel("Variance explained [%]")
         ax.set_xlim(0, self.N_MODES_MAX + 2)
-        ax.set_title("Scree plot", color=BLACK, fontsize=8)
+        ax.set_title("Scree plot", color=AMBER, fontsize=8)
         ax.legend(fontsize=6)
         ax.set_xticks(k_range)
 
@@ -247,7 +229,7 @@ class ControlPanelMixin:
                     label=f"Mode {k+1}  ({self.pca.var_explained[k]:.1f}%)")
         ax.set_xlabel("Flow coefficient  φ  [—]")
         ax.set_ylabel("Mode amplitude  [—]")
-        ax.set_title("Principal mode shapes", color=BLACK, fontsize=8)
+        ax.set_title("Principal mode shapes", color=AMBER, fontsize=8)
         ax.legend(fontsize=6)
 
     def _update_info(self):

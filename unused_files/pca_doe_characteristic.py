@@ -15,10 +15,12 @@ Workflow:
 import numpy as np
 import pandas as pd
 import matplotlib
+import re
 matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
-from matplotlib.widgets import Slider, Button, RadioButtons
+from matplotlib.widgets import Slider, Button, RadioButtons, CheckButtons
+import matplotlib.cm as cm
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import Matern, WhiteKernel, ConstantKernel
 from scipy.interpolate import interp1d
@@ -36,15 +38,18 @@ RED     = "#ff5a5a"
 PINK    = "#ff79c6"
 GREY    = "#445566"
 WHITE   = "#d0e8ff"
+PURPLE  = "#921dd6"
+LIME  = "#97e60f"
 MCOLORS = [CYAN, AMBER, GREEN, PINK, RED, "#bd93f9"]
+COLOUR_LIST = [CYAN, AMBER, GREEN, RED, PINK, WHITE, PURPLE, LIME]
 
 plt.rcParams.update({
     "figure.facecolor":  BG,
     "axes.facecolor":    PANEL,
     "axes.edgecolor":    BORDER,
     "axes.labelcolor":   WHITE,
-    "xtick.color":       GREY,
-    "ytick.color":       GREY,
+    "xtick.color":       WHITE,
+    "ytick.color":       WHITE,
     "text.color":        WHITE,
     "grid.color":        BORDER,
     "grid.linestyle":    "--",
@@ -71,6 +76,7 @@ PARAM_BOUNDS = {
     "Blade Count":       ("n_blade",       5,      9,     7),
 }
 
+PARAM_NAMES    = [k for k in PARAM_BOUNDS.keys()]
 PARAM_KEYS     = [v[0] for v in PARAM_BOUNDS.values()]   # ["mdot", "DH_mid", ...]
 PARAM_LO       = np.array([v[1] for v in PARAM_BOUNDS.values()], dtype=float)
 PARAM_HI       = np.array([v[2] for v in PARAM_BOUNDS.values()], dtype=float)
@@ -78,7 +84,7 @@ PARAM_DEFAULTS = np.array([v[3] for v in PARAM_BOUNDS.values()], dtype=float)
 
 
 N_PHI  = 100                                   # resolution of common φ grid
-PHI_COMMON = np.linspace(0.05, 0.35, N_PHI)     # universal φ grid (modify!!)
+PHI_COMMON = np.linspace(0.05, 0.25, N_PHI)     # universal φ grid (modify!!)
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  2.  Import test data
@@ -99,7 +105,12 @@ def load_with_gp_smooth(phi_raw, psi_raw, phi_common):
     
     gp = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=3,
                                   normalize_y=True)
-    gp.fit(phi_raw, psi_raw)
+    try:
+        gp.fit(phi_raw, psi_raw)
+    except ValueError:
+        print("Value Error!")
+        print(psi_raw)
+    
     
     mean, std = gp.predict(phi_common.reshape(-1, 1), return_std=True)
     return mean, std   # std gives per-point interpolation uncertainty
@@ -107,7 +118,6 @@ def load_with_gp_smooth(phi_raw, psi_raw, phi_common):
 def load_data():
     # Load params table
     params_df = pd.read_csv("doe_params.csv", index_col=0)   # columns: run_id, mdot, dh_mid, ...
-    params_df = params_df.iloc[:5]
 
     runs = []
     for row in params_df.itertuples():
@@ -122,10 +132,31 @@ def load_data():
         lean_weighting = int(1.0)
         lean_straight = row.lean_straight
         tip_clearance_percent = np.round(row.tip_clearance,3)
-        filename = f"DOE_{index}_{n_blades}_{mdot}_{DHmid}_{INC}_{Vexp}_{lean_max}_{lean_weighting}_{lean_straight}_{tip_clearance_percent}"
+        # filename = f"DOE_{index}_{n_blades}_{mdot}_{DHmid}_{INC}_{Vexp}_{lean_max}_{lean_weighting}_{lean_straight}_{tip_clearance_percent}"
         
-        # Remove negative pressure reading vals 
-        curve_df = pd.read_csv(f"data/doe_data/{filename}blade.csv")
+        for file in os.listdir("stl_files"):
+            match = re.search(f"DOE_{index}", file)
+            if match:
+                parts = file.split(sep=".")
+                # print(parts)
+                if parts[-1] == "stl":
+                    stl_file = file.rstrip(".stl")
+        if stl_file is None:
+            raise ValueError("No file found")
+        filename = f'data/doe_data/{stl_file}.csv'
+        
+        
+        try: 
+            # print(os.listdir("data/doe_data"))
+            # print(f"data/doe_data/{filename}blade.csv")
+            curve_df = pd.read_csv(filename)
+            # print(f"{index} found!!!")
+            
+        except FileNotFoundError:
+            print(f'{index} file not found!!!')
+            continue
+        
+        # Remove negative pressure reading vals
         for i, row2 in curve_df.iterrows():
             if row2['dp_venturi_mean'] < 0:
                 curve_df.drop(i, inplace=True)
@@ -264,17 +295,20 @@ class PCADoEApp:
             "PCA + GP Surrogate — DoE Compressor Characteristic Tool")
 
         # Outer grid: left controls | right plots
-        outer = gridspec.GridSpec(1, 2, figure=self.fig,
-                                  width_ratios=[1, 2.6], wspace=0.14,
+        outer = gridspec.GridSpec(1, 3, figure=self.fig,
+                                  width_ratios=[1, 0.4, 2.6], wspace=0.2,
                                   left=0.08, right=0.98, top=0.95, bottom=0.04)
 
         # Left: controls
         left_gs = gridspec.GridSpecFromSubplotSpec(
             30, 1, subplot_spec=outer[0], hspace=0.3)
+        
+        middle_gs = gridspec.GridSpecFromSubplotSpec(
+            2, 1, subplot_spec=outer[1], hspace=0.3)
 
         # Right: 2×2 plot grid
         right_gs = gridspec.GridSpecFromSubplotSpec(
-            2, 2, subplot_spec=outer[1], hspace=0.38, wspace=0.32)
+            2, 2, subplot_spec=outer[2], hspace=0.38, wspace=0.32)
 
         self.ax_main   = self.fig.add_subplot(right_gs[0, :])   # full top row
         self.ax_scree  = self.fig.add_subplot(right_gs[1, 0])
@@ -303,6 +337,27 @@ class PCADoEApp:
             sl.valtext.set_fontsize(7.5)
             sl.on_changed(self._on_slider)
             self.sliders[key] = sl
+            
+        # ── Tick boxes (compare design params) ──
+        param_items  = list(PARAM_BOUNDS.items())
+        ax = self.fig.add_subplot(middle_gs[0])
+        ax.set_facecolor(PANEL)
+        self.ticks = CheckButtons(ax, PARAM_NAMES, actives = [False]*len(PARAM_NAMES),
+                        useblit=[False]*len(PARAM_NAMES),
+                        frame_props={
+                            'edgecolor': 'black',  # box border colour
+                            'facecolor': 'white',                    # box fill colour
+                            's': 200,                                # box size (points²)
+                            'linewidth': 2,                          # border thickness
+                        },
+                        check_props={
+                            # 'facecolor': ['red', 'green', 'blue'],   # tick/check colour
+                            'color': 'orange',                       # alternative: single colour for all
+                            's': 200,                                # check mark size (must match frame)
+                            'linewidth': 2,
+                        },
+                        )
+        self.ticks.on_clicked(self._on_tick)
 
         # ── n_modes radio ──
         ax_radio = self.fig.add_subplot(left_gs[2*len(PARAM_BOUNDS)+1:2*len(PARAM_BOUNDS)+4])
@@ -347,6 +402,20 @@ class PCADoEApp:
 
     def _get_params(self):
         return ([self.sliders[key].val for key in PARAM_KEYS])
+    
+    def _get_tick(self):
+        checked_box_label = list(self.ticks.get_checked_labels())
+        box_number = None
+        if len(checked_box_label)>1:
+            self.ticks.clear()
+        elif len(checked_box_label)==1:
+            for i, label in enumerate(PARAM_NAMES):
+                if checked_box_label[0] == label:
+                    box_number = i
+                    break
+            return box_number
+        else:
+            return 
 
     def _draw_all(self):
         self._draw_main()
@@ -363,6 +432,14 @@ class PCADoEApp:
 
         param_vals  = self._get_params()
         scores_m, scores_s = self.gp.predict(param_vals)
+        
+        checked_box = self._get_tick()
+        if checked_box != None:
+            param = list(PARAM_BOUNDS.values())[checked_box]
+            if checked_box != 7:
+                plot_vals = np.linspace(param[1],param[2],8)
+            else:
+                plot_vals = np.linspace(param[1],param[2],5)
 
         # Mean prediction
         psi_pred  = self.pca.reconstruct(scores_m)
@@ -391,11 +468,23 @@ class PCADoEApp:
         ax.fill_between(PHI_COMMON, psi_pred - psi_std, psi_pred + psi_std,
                         color=CYAN, alpha=0.22, label="GP ±1σ")
 
-        # Predicted and truth
-        # ax.plot(PHI_COMMON, psi_true,  color=GREEN, lw=2.0, ls="--",
-        #         label="Truth model", zorder=5)
+        # Predicted
         ax.plot(PHI_COMMON, psi_pred,  color=CYAN,  lw=2.5,
-                label=f"GP prediction ({self.n_modes} modes)", zorder=6)
+                label=f"GP prediction ({self.n_modes} modes)", zorder=7)
+        
+        if checked_box != None:
+            n = len(plot_vals)
+            cmap = cm.coolwarm
+            for i,val in enumerate(plot_vals):
+                param_vals[checked_box] = val
+                scores_m, scores_s = self.gp.predict(param_vals)
+                # Mean prediction
+                psi_pred  = self.pca.reconstruct(scores_m)
+                
+                ax.plot(PHI_COMMON, psi_pred,  color=cmap(i / (n - 1)),  lw=1.5, alpha=0.6,
+                        label=f"{PARAM_KEYS[checked_box]}={val:.2f}", zorder=6)
+        
+        
 
         # rms = np.sqrt(np.mean((psi_pred - psi_true)**2))
         title = ""
@@ -407,6 +496,8 @@ class PCADoEApp:
         ax.set_xlabel("Flow coefficient  φ  [—]")
         ax.set_ylabel("Pressure rise coeff  ψ  [—]")
         ax.legend(loc="upper right", framealpha=0.7)
+        ax.set_ylim(0.1,0.5)
+        ax.set_xlim(0.04,0.26)
 
         # self._rms = rms
         self._scores_m = scores_m
@@ -485,6 +576,11 @@ class PCADoEApp:
     # ── Callbacks ───────────────────────────────────────────────────────────
 
     def _on_slider(self, _val):
+        self._draw_main()
+        self._update_info()
+        self.fig.canvas.draw_idle()
+    
+    def _on_tick(self, _label):
         self._draw_main()
         self._update_info()
         self.fig.canvas.draw_idle()

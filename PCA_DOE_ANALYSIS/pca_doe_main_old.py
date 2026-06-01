@@ -115,12 +115,14 @@ class TabbedApp:
             ax.set_visible(visible)
 
     def _sync_sliders(self, source_tab, dest_tab):
-        """Copy slider values from source_tab to dest_tab without triggering callbacks."""
-        # dest_tab is currently invisible/inactive — keep is_active False throughout.
-        # Observers are already disconnected (set_sliders_active was called with False),
-        # so directly writing .val is safe and won't fire _on_slider.
+        """Copy slider values from source_tab to dest_tab without triggering callbacks or mouse grab."""
+        dest_tab.is_active = False  # Suppress callbacks during sync
         for key, slider_dest in dest_tab.sliders.items():
-            slider_dest.set_val(source_tab.sliders[key].val)
+            val = source_tab.sliders[key].val
+            # Directly set value and update display, avoiding mouse grab on hidden axes
+            slider_dest.val = val
+            # slider_dest.valtext.set_text(slider_dest.valfmt % val)
+        dest_tab.is_active = True   # Re-enable for visibility change
 
     # ── Tab switch callbacks ──────────────────────────────────────────────────
     def _show_psi(self, _event=None):
@@ -131,7 +133,6 @@ class TabbedApp:
         self._set_tab_visible(self.psi_tab, True)
         self._current = "psi"
         self._update_tab_buttons(active="psi")
-        self.psi_tab._draw_all()
         self.fig.canvas.draw_idle()
 
     def _show_eta(self, _event=None):
@@ -142,7 +143,6 @@ class TabbedApp:
         self._set_tab_visible(self.eta_tab, True)
         self._current = "eta"
         self._update_tab_buttons(active="eta")
-        self.eta_tab._draw_all()
         self.fig.canvas.draw_idle()
 
     def _update_tab_buttons(self, active: str):

@@ -35,6 +35,10 @@ import time
 # datetime: For generating timestamped filenames
 from datetime import datetime
 
+import scipy.io.wavfile as wavfile
+
+
+import os, re
 class MicrophoneAnalyzer:
     """
     Main class for microphone detection, audio recording, and analysis.
@@ -151,7 +155,7 @@ class MicrophoneAnalyzer:
         ra_f = 20 * np.log10(num / den) - a1000
         return ra_f
     
-    def record_audio(self):
+    def record_audio(self, recording_name=None):
         """
         Record audio from the selected microphone.
         
@@ -183,6 +187,11 @@ class MicrophoneAnalyzer:
             # Wait for the recording to complete (blocks until done)
             sd.wait()
             print("✓ Recording complete!")
+            if recording_name == None:
+                pass
+            else:
+                wavfile.write(recording_name, self.sample_rate, self.audio_data) # f"extra_audio/{recording_name}.wav", self.sample_rate, self.audio_data)
+                print("✓ Recording saved as: " + recording_name)
             return True
         except Exception as e:
             # Catch any errors during recording (e.g., device disconnected)
@@ -385,7 +394,7 @@ class MicrophoneAnalyzer:
         # ========== SUBPLOT 3: ZOOMED FREQUENCY SPECTRUM ==========
         # Provides more detail on lower frequencies (0-5 kHz)
         ax = axes[1, 0]
-        zoom_mask = analysis_data['freqs'] <= 5000
+        zoom_mask = analysis_data['freqs'] <= 1000
         ax.plot(analysis_data['freqs'][zoom_mask], analysis_data['magnitude'][zoom_mask], linewidth=0.5)
         ax.set_xlabel('Frequency (Hz)')
         ax.set_ylabel('Magnitude')
@@ -425,8 +434,8 @@ class MicrophoneAnalyzer:
         # Generate timestamped filename to avoid overwriting previous analyses
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = r"audio\audio_analysis_" + f"{timestamp}.png"
-        plt.savefig(filename, dpi=150)
-        print(f"\n✓ Analysis plot saved as: {filename}")
+        # plt.savefig(filename, dpi=150)
+        # print(f"\n✓ Analysis plot saved as: {filename}")
         
         # Display the figure (blocks until window is closed)
         plt.show()
@@ -453,9 +462,68 @@ class MicrophoneAnalyzer:
         
         # Step 2: Prompt user to select a microphone
         self.select_microphone(microphones)
+        entry    = False
+        doe_bool = False
+        inverse_design_bool = False
+        while not entry:
+            doe = input("Is this a DOE test? (y/n) ")
+            if doe == "y":
+                entry = True
+                try:
+                    blade_number = int(input("What blade is this? (Enter integer) "))
+                    doe_bool = True
+                    stl_file = None
+                    for file in os.listdir("stl_files"):
+                        match = re.search(f"DOE_{blade_number}", file)
+                        if match:
+                            parts = file.split(sep=".")
+                            print(parts)
+                            if parts[-1] == "stl":
+                                stl_file = file.rstrip(".stl")
+                    if stl_file is None:
+                        raise ValueError("No file found")
+                    # CSV_FILENAME   = f'data/doe_data/{stl_file}.csv'
+                    recording_name = f'audio/doe_data_2/{stl_file}.wav'
+                    # print(CSV_FILENAME)
+                except TypeError:
+                    print("invalid entry")
+                    entry = False
+            elif doe == "n":
+                inverse_design = input("Is this inverse design? (y/n) ")
+                if inverse_design == "y":
+                    entry = True
+                    try:
+                        inverse_design_bool = True
+                        inverse_blade_number = int(input("What blade is this? (Enter integer) "))
+                        stl_file = None
+                        for file in os.listdir("stl_files"):
+                            match = re.search(f"inverse_design_test_{inverse_blade_number}", file)
+                            if match:
+                                parts = file.split(sep=".")
+                                print(parts)
+                                if parts[-1] == "stl":
+                                    stl_file = file.rstrip(".stl")
+                        if stl_file is None:
+                            raise ValueError("No file found")
+                        # CSV_FILENAME   = f'data/doe_data/{stl_file}.csv'
+                        recording_name = f'audio/inverse_design_2/{stl_file}.wav'
+                        # print(CSV_FILENAME)
+                    except TypeError:
+                        print("invalid entry")
+                        entry = False
+                else:
+                    entry = True
+            else:
+                print("Enter a valid response (y/n)")
         
+        
+        if not doe_bool and not inverse_design_bool:
+            blade = input("Enter blade type: ")
+            if blade != "":
+                recording_name = f'audio/recording_{blade}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.wav'
+            
         # Step 3: Record audio from selected microphone
-        if not self.record_audio():
+        if not self.record_audio(recording_name):
             return
         
         # Step 4: Analyze the recorded audio
@@ -479,4 +547,4 @@ if __name__ == "__main__":
     # Create an instance of the analyzer and run the complete pipeline
     analyzer = MicrophoneAnalyzer()
     analyzer.run()
-    print(analyzer.audio_data)
+    # print(analyzer.audio_data)

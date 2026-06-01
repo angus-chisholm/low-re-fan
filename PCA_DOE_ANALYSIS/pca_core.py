@@ -11,15 +11,20 @@ import matplotlib
 import re
 matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
+import matplotlib.cm as cm
+import librosa
+import scipy.signal
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import Matern, WhiteKernel, ConstantKernel
 import warnings, os
+from tqdm import tqdm
 warnings.filterwarnings("ignore")
 
 # ─── Colour palette ──────────────────────────────────────────────────────────
-BG      = "#0b0f1e"
-PANEL   = "#111827"
-BORDER  = "#1e3a5f"
+BG      = "#ffffffef"
+BLACK   = "#000000"
+PANEL   = "#FFFFFF"
+BORDER  = "#0d1d31"
 CYAN    = "#00d4ff"
 AMBER   = "#ffb347"
 GREEN   = "#5fffaa"
@@ -29,18 +34,21 @@ GREY    = "#445566"
 WHITE   = "#d0e8ff"
 PURPLE  = "#921dd6"
 LIME    = "#97e60f"
+COLOUR_CHIC = "#f0293a"
+COLOUR_ETA  = "#a958df"
 MCOLORS = [CYAN, AMBER, GREEN, PINK, RED, "#bd93f9"]
 COLOUR_LIST = [CYAN, AMBER, GREEN, RED, PINK, WHITE, PURPLE, LIME]
+COLOURMAP = cm.winter
 
 plt.rcParams.update({
     "figure.facecolor":  BG,
     "axes.facecolor":    PANEL,
     "axes.edgecolor":    BORDER,
-    "axes.labelcolor":   WHITE,
-    "xtick.color":       WHITE,
-    "ytick.color":       WHITE,
-    "text.color":        WHITE,
-    "grid.color":        BORDER,
+    "axes.labelcolor":   BLACK,
+    "xtick.color":       BLACK,
+    "ytick.color":       BLACK,
+    "text.color":        BLACK,
+    "grid.color":        GREY,
     "grid.linestyle":    "--",
     "grid.alpha":        0.4,
     "font.family":       "monospace",
@@ -96,49 +104,55 @@ def load_with_gp_smooth(phi_raw, y_raw, phi_common):
 def load_data():
     params_df = pd.read_csv("doe_params.csv", index_col=0)
     runs = []
-    for row in params_df.itertuples():
-        index              = row.Index
+    with tqdm(total=len(params_df)) as pbar:
+        for row in params_df.itertuples():
+            index              = row.Index
 
-        stl_file = None
-        for file in os.listdir("stl_files"):
-            if re.search(f"DOE_{index}", file):
-                if file.split(".")[-1] == "stl":
-                    stl_file = file.rstrip(".stl")
-        if stl_file is None:
-            raise ValueError(f"No STL file found for run {index}")
+            stl_file = None
+            for file in os.listdir("stl_files"):
+                if re.search(f"DOE_{index}", file):
+                    if file.split(".")[-1] == "stl":
+                        stl_file = file.rstrip(".stl")
+            if stl_file is None:
+                raise ValueError(f"No STL file found for run {index}")
 
-        filename = f"data/doe_data/{stl_file}.csv"
-        try:
-            curve_df = pd.read_csv(filename)
-        except FileNotFoundError:
-            print(f"{index} file not found!")
-            continue
+            filename = f"data/doe_data/{stl_file}.csv"
+            try:
+                curve_df = pd.read_csv(filename)
+            except FileNotFoundError:
+                print(f"{index} file not found!")
+                continue
 
-        # Drop negative venturi readings
-        curve_df = curve_df[curve_df["dp_venturi_mean"] >= 0].copy()
-        start_phi = float(np.min(curve_df["flow_coefficient_mean"]))
-        end_phi = float(np.max(curve_df["flow_coefficient_mean"]))
+            # Drop negative venturi readings
+            curve_df = curve_df[curve_df["dp_venturi_mean"] >= 0].copy()
+            start_phi = float(np.min(curve_df["flow_coefficient_mean"]))
+            end_phi = float(np.max(curve_df["flow_coefficient_mean"]))
 
-        # ψ characteristic
-        mean_psi, _ = load_with_gp_smooth(
-            curve_df["flow_coefficient_mean"],
-            curve_df["pressure_rise_coefficient_mean"],
-            PHI_COMMON,
-        )
+            # ψ characteristic
+            mean_psi, _ = load_with_gp_smooth(
+                curve_df["flow_coefficient_mean"],
+                curve_df["pressure_rise_coefficient_mean"],
+                PHI_COMMON,
+            )
 
-        
-        mean_eta, _ = load_with_gp_smooth(
-            curve_df["flow_coefficient_mean"],
-            curve_df["efficiency_mean" ],
-            PHI_COMMON,
-        )
+            # Efficiency characteristic
+            mean_eta, _ = load_with_gp_smooth(
+                curve_df["flow_coefficient_mean"],
+                curve_df["efficiency_mean" ],
+                PHI_COMMON,
+            )  
+            
+            # Import audio
+            audio_filename = f"audio/doe_data/{stl_file}.wav"
+            audio_data,sample_rate = librosa.load(audio_filename, sr=None)
 
-        data_as_dict        = row._asdict()
-        data_as_dict["psi"] = mean_psi
-        data_as_dict["eta"] = mean_eta
-        data_as_dict["phi_start"] = start_phi
-        data_as_dict["phi_end"] = end_phi
-        runs.append(data_as_dict)
+            data_as_dict        = row._asdict()
+            data_as_dict["psi"] = mean_psi
+            data_as_dict["eta"] = mean_eta
+            data_as_dict["phi_start"] = start_phi
+            data_as_dict["phi_end"] = end_phi
+            runs.append(data_as_dict)
+            pbar.update(1)
 
     return runs
 

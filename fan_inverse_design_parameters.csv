@@ -1,0 +1,4 @@
+﻿Label,Max airflow (m3/hr),Max static (mmh2o),Max RPM,Max Noise,U,phi_target,psi_target,Area,rho,r_mean,,phi_min,phi_max,psi_min,psi_max
+AKASA AK-FN071,42.28811,2.2,2500,26.82,7.1995,0.3777,0.3441,0.00431969,1.21,0.0275,,0.30609,0.58257,0.12439,0.47537
+Noctua NF-A8 (psi adjusted),55.5,2.37,2200,,6.335545185,0.563318363,0.47537,,,,,,,,
+Arctic P8 Silent,26.5,0.62,1600,,4.607669225,0.369836268,0.236762402,,,,,,,,

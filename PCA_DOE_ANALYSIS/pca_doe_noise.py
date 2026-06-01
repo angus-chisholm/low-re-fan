@@ -14,8 +14,8 @@ import csv, os
 from pca_core import (
     PARAM_BOUNDS, PARAM_NAMES, PARAM_KEYS,
     PHI_COMMON, N_PHI,
-    BG, PANEL, BORDER, CYAN, AMBER, GREEN, RED, PINK, GREY, WHITE, BLACK, COLOUR_ETA,
-    MCOLORS, COLOURMAP,
+    BG, PANEL, BORDER, CYAN, AMBER, GREEN, RED, PINK, GREY, WHITE,
+    MCOLORS,
     PCAModel, GPSurrogates,
 )
 from pca_panel_mixin import ControlPanelMixin
@@ -25,9 +25,9 @@ ETA_ACCENT = GREEN      # main prediction line colour
 ETA_BAND   = GREEN      # uncertainty band fill colour
 
 
-class EtaTab(ControlPanelMixin):
+class NoiseTab(ControlPanelMixin):
     """
-    η(φ) PCA surrogate tab.
+    PSD(η_max) PCA surrogate tab.
 
     Parameters
     ----------
@@ -118,26 +118,26 @@ class EtaTab(ControlPanelMixin):
         # GP uncertainty bands
         ax.fill_between(PHI_COMMON[mask],
                         eta_pred - 2*eta_std, eta_pred + 2*eta_std,
-                        color=COLOUR_ETA, alpha=0.10, label="GP ±2σ")
+                        color=ETA_BAND, alpha=0.10, label="GP ±2σ")
         ax.fill_between(PHI_COMMON[mask],
                         eta_pred - eta_std,   eta_pred + eta_std,
-                        color=COLOUR_ETA, alpha=0.22, label="GP ±1σ")
+                        color=ETA_BAND, alpha=0.22, label="GP ±1σ")
 
         # GP mean prediction
-        ax.plot(PHI_COMMON[mask], eta_pred, color=COLOUR_ETA, lw=2.5,
+        ax.plot(PHI_COMMON[mask], eta_pred, color=ETA_ACCENT, lw=2.5,
                 label=f"GP prediction ({self.n_modes} modes)", zorder=7)
 
         # Peak-efficiency marker
         peak_idx = int(np.nanargmax(eta_pred))
-        ax.axvline(PHI_COMMON[mask][peak_idx], color=RED, lw=1.0, ls=":", alpha=0.7)
+        ax.axvline(PHI_COMMON[mask][peak_idx], color=AMBER, lw=1.0, ls=":", alpha=0.7)
         ax.scatter([PHI_COMMON[mask][peak_idx]], [eta_pred[peak_idx]],
-                   color=RED, s=60, zorder=9,
+                   color=AMBER, s=60, zorder=9,
                    label=f"η_peak={eta_pred[peak_idx]:.3f}  φ={PHI_COMMON[mask][peak_idx]:.3f}")
 
         # Parameter sweep
         if plot_vals is not None:
             n    = len(plot_vals)
-            cmap = COLOURMAP
+            cmap = cm.coolwarm
             for i, val in enumerate(plot_vals):
                 pv = list(param_vals); pv[checked_box] = val
                 sm, _, phi_s_m, _, phi_e_m, _ = self.gp.predict(pv)
@@ -147,7 +147,7 @@ class EtaTab(ControlPanelMixin):
                         label=f"{PARAM_KEYS[checked_box]}={val:.2f}", zorder=6)
 
         title = "  ".join(f"{k}={v:.3g}" for k, v in zip(PARAM_KEYS, param_vals))
-        ax.set_title(title, color=BLACK, fontsize=7, pad=4)
+        ax.set_title(title, color=AMBER, fontsize=7, pad=4)
         ax.set_xlabel("Flow coefficient  φ  [—]")
         ax.set_ylabel("Efficiency [aero work/electrical work]  η  [—]")
         ax.legend(loc="upper left", framealpha=0.7)
