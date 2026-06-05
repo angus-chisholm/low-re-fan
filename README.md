@@ -43,7 +43,7 @@ This project combines **computational fan design** with **experimental validatio
 
 ```
 low-re-fan/
-├── throughflow_solver/        # Fan design engine (throughflow analysis)
+├── throughflow_solver/        # Fan design engine (throughflow analysis) [Full code not available on git (CURTIS files available from Chris Clark)]
 ├── rotor_files/              # CAD rotor files
 ├── stl_files/                # Generated STL files for manufacturing
 ├── data/                     # Experimental test data (CSV files)
