@@ -84,6 +84,16 @@ For experimental testing, the rig requires:
 ### Connection Notes
 See [rig_info.md](rig_info.md) for detailed setup, known issues, and troubleshooting tips.
 
+### Arduino Sketches
+The `arduino/` directory contains the firmware for the rig control and data acquisition:
+
+- **`pid_pwm_rpm_efficiency/`** - Sets and records the RPM of the fan and takes power measurements. Runs PID control for RPM stabilization.
+- **`pressure_reading_only/`** - Takes pressure readings and returns statistics. Used for ESP32 pressure sensor data collection.
+- **`stepper_testing/`** - Allows manual movement of the throttle into the right location to begin testing. Useful for rig calibration.
+- **`suction_throttle_combined/`** - Sets the throttle adjustment points for automated throttle control during tests.
+
+Upload the appropriate sketch to each Arduino device before running experiments.
+
 ## Installation
 
 ### Prerequisites
