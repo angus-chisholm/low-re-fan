@@ -1,9 +1,8 @@
-# from DOE2_rotor_only_fan_generator import create_doe2_rotor_only_fan_parametric
-# from run_sleq_solver import run_solver_from_sleq
+from DOE2_rotor_only_fan_generator import create_doe2_rotor_only_fan_parametric
+from run_sleq_solver import run_solver_from_sleq
 import numpy as np
 from stl import mesh
 import pandas as pd
-import time
 
 ## Helper Functions
 
@@ -15,14 +14,6 @@ def convert_to_cartesian(section):
     Y_cart = r * np.sin(theta)
     
     return X_cart, Y_cart, Z_cart
-
-def convert_to_cylindrical(section):
-    x,y,z = section[:,0], section[:,1], section[:,2]
-    Z_cyl = z
-    theta = np.arctan(y/z)
-    r = np.sqrt(x**2+y**2)
-    
-    return r,theta,Z_cyl
 
 def reorder_with_te_last(side, other_te):
     d0 = np.linalg.norm(side[0] - other_te)
@@ -229,15 +220,13 @@ def generate_fan_stl(
     index = None, 
     ):
     
-    start = time.time()
     tip_clearance_percent = np.round((0.04-rtip)/0.04 *100,3)
     num_streamlines=20
     num_internal_stations=5
     rotor_chord=0.015
 
     # Set corresponding filename for later retrieval
-    filename = f"inverse_design_test_{index}_{n_blades}_{mdot:.4f}_{DHmid:.4f}_{INC:.2f}_{Vexp:.4f}_{lean_max:.4f}_{lean_weighting}_{lean_straight:.2f}_{tip_clearance_percent:.3f}"
-    print(filename)
+    filename = f"DOE_{index}_{n_blades}_{mdot}_{DHmid}_{INC}_{Vexp}_{lean_max}_{lean_weighting}_{lean_straight}_{tip_clearance_percent}"
 
     # Run fan design
     create_doe2_rotor_only_fan_parametric(
@@ -275,10 +264,6 @@ def generate_fan_stl(
     print("============================================= \n")
     print('Sleq run complete')
 
-    end = time.time()
-    print("============================================= \n")
-    print(f'Time taken: {end-start}s')
-    print("============================================= \n")
     # Load output
     output_filename = 'throughflow_output\\' + filename+"_blade_sections.npz"
     section_data = np.load(output_filename, allow_pickle=True)['sections'].item()['R1']
@@ -292,64 +277,45 @@ def generate_fan_stl(
     # Make trailing edges
     XYZ_sections_complete = smooth_trailing_edges(XYZ_sections)
     
-    midspan_index = len(XYZ_sections_complete)//2
-    midspan_shape = XYZ_sections_complete[midspan_index]
-    # print(midspan_shape, np.shape(midspan_shape))
+    # Generate STL faces for mesh
+    all_faces = generate_stl_faces(XYZ_sections_complete, Nblade=int(n_blades))
     
-    r,theta,z = convert_to_cylindrical(midspan_shape)
-    # import matplotlib.pyplot as plt
-    # from mpl_toolkits.axes_grid1.inset_locator import inset_axes
+    # Import Hub as mesh
+    hub_file = r"MarketDesign1 - ChrisEyeball.stl"
+    hub_mesh = mesh.Mesh.from_file(hub_file)
+    
+    # Create the mesh object
+    blade_mesh = mesh.Mesh(np.zeros(all_faces.shape[0]+hub_mesh.vectors.shape[0], dtype=mesh.Mesh.dtype))
 
-    # fig, ax = plt.subplots()
-    # ax.plot(z,np.multiply(r,theta))
-    
-    # inset = inset_axes(ax, width="30%", height="30%", loc="upper right")
-    # inset.plot(z,np.multiply(r,theta), color="coral")
-    # inset.axis("off")
-    
-    # ax.grid()
-    # plt.show()
-    
-    # # Generate STL faces for mesh
-    # all_faces = generate_stl_faces(XYZ_sections_complete, Nblade=int(n_blades))
-    
-    # # Import Hub as mesh
-    # hub_file = r"MarketDesign1 - ChrisEyeball.stl"
-    # hub_mesh = mesh.Mesh.from_file(hub_file)
-    
-    # # Create the mesh object
-    # blade_mesh = mesh.Mesh(np.zeros(all_faces.shape[0]+hub_mesh.vectors.shape[0], dtype=mesh.Mesh.dtype))
+    for i, f in enumerate(all_faces):
+        blade_mesh.vectors[i] = f
 
-    # for i, f in enumerate(all_faces):
-    #     blade_mesh.vectors[i] = f
+    # # Translate hub to align with blade section
+    diff = blade_mesh.z.min() - hub_mesh.z.min() - 0.002 # Clearance
+    copy_hub_mesh = mesh.Mesh(hub_mesh.data.copy())
+    copy_hub_mesh.points[:, (2,5,8)] += diff
 
-    # # # Translate hub to align with blade section
-    # diff = blade_mesh.z.min() - hub_mesh.z.min() - 0.002 # Clearance
-    # copy_hub_mesh = mesh.Mesh(hub_mesh.data.copy())
-    # copy_hub_mesh.points[:, (2,5,8)] += diff
-
-    # for j, g in enumerate(copy_hub_mesh.vectors):
-    #     blade_mesh.vectors[i+j] = g
+    for j, g in enumerate(copy_hub_mesh.vectors):
+        blade_mesh.vectors[i+j] = g
         
-    # # Save to disk
-    # mesh_filename = 'stl_files\\' + filename + "blade.stl"
-    # blade_mesh.save(mesh_filename)
+    # Save to disk
+    mesh_filename = 'stl_files\\' + filename + "blade.stl"
+    blade_mesh.save(mesh_filename)
     
-    # print("\n=============================================")
-    # print('Saved stl to file')
+    print("\n=============================================")
+    print('Saved stl to file')
 
 def main():
     
     # Take params from csv
-    file = 'm_dot_dh_variation.csv'
-    data = pd.read_csv(file, index_col=None)
-    # data = data.iloc[-5:]
-    print(data.head())
+    file = 'doe_params.csv'
+    data = pd.read_csv(file, index_col=0)
+    data = data.iloc[-5:]
+    print(data)
     stopping = input("press enter to continue")
     for i, row in data.iterrows():
         # rows: ['mdot', 'DH_mid', 'incidence', 'Vexp', 'lean_compound', 'lean_straight', 'tip_clearance', 'n_blade']
         ### input params
-        index = i
         n_blades = row['n_blade']
         rhub=0.015             # 15 mm hub radius
         rcase=0.040             # 40 mm case radius
@@ -365,9 +331,8 @@ def main():
         lean_weighting = 1   # Form of lean curve (r*(1-r))**lean_weighting
         lean_straight = row['lean_straight'] # Straight lean angle (degrees)
         
-        generate_fan_stl(n_blades, rhub, rtip, RPM, mdot, DHmid, INC, Vexp, lean_max, lean_weighting, lean_straight, index = 101+i)
-        break
-
+        generate_fan_stl(n_blades, rhub, rtip, RPM, mdot, DHmid, INC, Vexp, lean_max, lean_weighting, lean_straight, index = i)
+    
     
 
 

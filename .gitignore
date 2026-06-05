@@ -201,11 +201,6 @@ cython_debug/
 .cursorignore
 .cursorindexingignore
 
-# Marimo
-marimo/_static/
-marimo/_lsp/
-__marimo__/
-
 # Ignore data, audio, figs, and other folders with lots of data
 data/
 figs/
@@ -217,8 +212,11 @@ report/
 rotor_files/
 stl_files/
 throughflow_output/
-throughflow_solver/
+# CURTIS code - ask Chris Clark.
+throughflow_solver/*
 !throughflow_solver/parameter_sweep.py
+!throughflow_solver/fan_generator_from_params.py
+
 *.stl
 *.png
 

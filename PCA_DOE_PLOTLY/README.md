@@ -6,7 +6,7 @@ Interactive Plotly Dash replacement for the original matplotlib GUI.
 
 | File | Purpose |
 |------|---------|
-| `app.py` | Dash web app — all layout, callbacks, and plot logic |
+| `app3.py` | Dash web app — all layout, callbacks, and plot logic |
 | `pca_core.py` | Shared PCA / GP / data-loading (unchanged logic from original) |
 
 ## Setup
