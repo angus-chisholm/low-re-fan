@@ -591,7 +591,7 @@ if __name__ == "__main__":
         print("\nStopping...")
     finally:
         csv_file.close()
-        fig.savefig(f"figs/dataplot_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
+        # fig.savefig(f"figs/dataplot_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
         if mic_recordings:
             full_recording = np.concatenate(mic_recordings, axis=0)
             wavfile.write(AUDIO_FILENAME, mic_analyser.sample_rate, full_recording)

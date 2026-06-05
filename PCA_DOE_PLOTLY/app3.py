@@ -917,8 +917,8 @@ def _build_audio_plots(slider_vals, sweep_idx):
     ))
 
     if sweep_idx >= 0:
-        print("SWEEP")
-        print(sweep_idx)
+        # print("SWEEP")
+        # print(sweep_idx)
         meta    = list(PARAM_BOUNDS.values())[sweep_idx]
         n_steps = 5 if sweep_idx == 7 else 8
         s_vals  = np.linspace(meta[1], meta[2], n_steps)
