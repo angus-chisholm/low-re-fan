@@ -1,1 +1,181 @@
-# low-re-fan
+# Low Reynolds Number Axial Fan Design & Experimental Validation
+
+## Overview
+
+This project combines **computational fan design** with **experimental validation** for low Reynolds number axial fans. It includes a complete workflow from parametric fan design through to real-world testing on an experimental rig, with comprehensive data analysis using PCA and machine learning techniques.
+
+## Project Goals
+
+- Design and optimize low Reynolds number axial fans using throughflow solver analysis
+- Record experimental performance data from a test rig instrumented with Arduino controllers and sensors
+- Analyze fan performance through data processing, PCA, and surrogate modeling
+- Provide an interactive tool for exploring the design space and model predictions
+
+## Key Features
+
+### 🎯 Fan Design
+- **Parametric fan geometry generation** within `throughflow_solver/` using a throughflow analysis approach
+- **Parameter sweep functionality** for design optimization
+- **STL file output** for 3D printing and manufacturing
+
+### 📊 Experimental Data Acquisition
+- **Serial data logging** from multiple Arduino devices:
+  - RPM measurement and PID control (Nano 1)
+  - Pressure readings (ESP32)
+  - Throttle adjustment (Nano 2)
+- **Audio recording** via USB microphone for noise analysis
+- **Real-time plotting** of fan performance during testing
+
+### 🔍 Data Analysis
+- **PCA-based dimensionality reduction** and visualization
+- **Design of Experiments (DOE)** analysis
+- **Surrogate modeling** with Gaussian Processes for design space exploration
+- **Performance metrics** extraction and trend analysis
+
+### 🖥️ Interactive Tools
+- **Web GUI** (`app3.py`) for interactive model exploration
+- **Jupyter notebooks** for analysis visualization
+  - `fig_generator_pca_gp.ipynb` - comprehensive analysis and plotting
+  - `results_plotter.ipynb` - results visualization
+
+## Project Structure
+
+```
+low-re-fan/
+├── throughflow_solver/        # Fan design engine (throughflow analysis)
+├── rotor_files/              # CAD rotor files
+├── stl_files/                # Generated STL files for manufacturing
+├── data/                     # Experimental test data (CSV files)
+├── audio/                    # Recorded audio from tests
+│   ├── doe_data/            # DOE test recordings
+│   └── inverse_design/      # Inverse design test recordings
+├── figs/                     # Generated figures and plots
+├── PCA_DOE_ANALYSIS/         # PCA and DOE analysis outputs
+├── GPS_PKL/                  # Trained model files
+│
+├── serial_save_plot.py       # Main data acquisition script (connect rig & Arduino)
+├── microphone_recorder.py    # Audio recording and analysis
+├── app3.py                   # Interactive web GUI
+├── pca_core.py              # Core PCA and analysis functions
+├── fig_generator_pca_gp.ipynb  # Analysis and visualization notebook
+├── results_plotter.ipynb     # Results visualization
+├── doe_generator.py          # Design of Experiments generation
+├── noise.py                  # Noise alert functionality
+├── rig_info.md              # Hardware setup and troubleshooting
+└── README.md                # This file
+```
+
+## Hardware Setup
+
+For experimental testing, the rig requires:
+
+### Arduino Devices
+1. **Arduino Nano 1** (COM4) - RPM PID controller and efficiency monitoring via micro-USB
+2. **ESP32** (COM5) - Pressure sensor readings via micro-USB
+3. **Arduino Nano 2** (COM6) - Throttle adjustment via USB-C
+
+### Sensors & Instruments
+- **Hall effect sensor** - RPM measurement (can be finicky; see troubleshooting in `rig_info.md`)
+- **Pressure sensors** - Connected to ESP32
+- **USB microphone** - Audio recording (with long USB-C cable)
+- **Motor with 2.5mm hex bolt** - Test rig interface
+
+### Connection Notes
+See [rig_info.md](rig_info.md) for detailed setup, known issues, and troubleshooting tips.
+
+## Installation
+
+### Prerequisites
+- Python 3.8+
+- Arduino IDE (for uploading sketches to Nano and ESP32)
+- USB cables for Arduino devices
+
+### Python Dependencies
+
+Install required packages:
+```bash
+pip install numpy pandas scipy matplotlib scikit-learn librosa tqdm
+```
+
+Optional dependencies:
+- `plotly` - for interactive PCA plots in `PCA_DOE_PLOTLY/`
+- `jupyter` - for running notebooks
+
+### Quick Start
+
+1. **Clone/set up the repository**
+   ```bash
+   git clone <repo-url>
+   cd low-re-fan
+   ```
+
+2. **Connect hardware** (if running experiments)
+   - Connect Arduino devices via USB (Nano 1 to COM4, ESP32 to COM5, Nano 2 to COM6)
+   - Connect USB microphone
+
+3. **Run data acquisition** (for experiments)
+   ```bash
+   python serial_save_plot.py
+   ```
+   This will:
+   - Connect to all Arduino devices
+   - Record RPM, pressure, and throttle data
+   - Capture audio simultaneously
+   - Save data to `data/test_data_YYYYMMDD_HHMMSS.csv`
+   - Save audio to `audio/recording_YYYYMMDD_HHMMSS.wav`
+
+4. **Analyze results**
+   - Open `fig_generator_pca_gp.ipynb` for full analysis pipeline
+   - Use `app3.py` for interactive exploration
+
+## Usage Workflow
+
+### Design Phase
+1. Generate fan designs using `throughflow_solver/` with `parameter_sweep.py`
+2. Export STL files for 3D printing
+
+### Testing Phase
+1. Prepare fan prototype and install on rig (use 2.5mm hex bolt)
+2. Run `serial_save_plot.py` to conduct test and record data
+3. Data and audio are automatically saved with timestamp
+
+### Analysis Phase
+1. Process raw data through `pca_core.py` functions
+2. Generate analysis plots and surrogate models in `fig_generator_pca_gp.ipynb`
+3. Use `app3.py` for interactive design space exploration
+4. Visualize results in `results_plotter.ipynb`
+
+## Key Files Reference
+
+| File | Purpose |
+|------|---------|
+| `serial_save_plot.py` | Real-time data acquisition from rig |
+| `pca_core.py` | PCA analysis and processing functions |
+| `app3.py` | Interactive web-based GUI |
+| `microphone_recorder.py` | Audio analysis tools |
+| `doe_generator.py` | Design of Experiments sampling |
+| `axial_fan_design.py` | Fan geometry and performance calculation |
+
+## Output Data
+
+- **CSV files** in `data/` - Timestamped experimental results (RPM, pressure, efficiency, etc.)
+- **WAV files** in `audio/` - Recorded sound for noise analysis
+- **STL files** in `stl_files/` - 3D-printable fan designs
+- **Plots & Analysis** - Generated in `figs/`, `PCA_DOE_ANALYSIS/`, `PCA_DOE_PLOTLY/`
+- **Trained models** - Stored as PKL files in `GPS_PKL/`
+
+## Known Issues & Troubleshooting
+
+See [rig_info.md](rig_info.md) for:
+- Hall effect sensor connectivity issues
+- Motor shaft assembly concerns
+- Arduino cable requirements
+
+## Contributing
+
+This is a 4th year research project for Year 4 at Cambridge.
+
+## License
+
+See [LICENSE](LICENSE) file for details.
+
